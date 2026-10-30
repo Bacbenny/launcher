@@ -32,11 +32,44 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
+      - name: Restore stable signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+            echo "::error::GitHub Actions secret ANDROID_KEYSTORE_BASE64 is missing."
+            exit 1
+          fi
+          keystore_path="$RUNNER_TEMP/launcher-release.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+          echo "ANDROID_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+
       - name: Test, lint, and build the launcher
         working-directory: launcher
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]]; then
+            echo "::error::GitHub Actions secret ANDROID_KEYSTORE_PASSWORD is missing."
+            exit 1
+          fi
           chmod +x gradlew
-          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease -PstableSigning=true
+
+      - name: Verify stable APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs \
+            launcher/app/build/outputs/apk/release/app-release.apk
+
+      - name: Remove temporary signing key
+        if: always()
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            rm -f -- "$ANDROID_KEYSTORE_PATH"
+          fi
 
       - name: Prepare APK and release details
         id: release
@@ -55,8 +88,8 @@ jobs:
 
           version_name = version_name.group(1)
           version_code = version_code.group(1)
-          tag = f"launcher-v{version_name}-build{version_code}"
-          title = f"Android TV Home Launcher {version_name} (build {version_code})"
+          tag = f"launcher-v{version_name}-build{version_code}-stable"
+          title = f"Android TV Home Launcher {version_name} (build {version_code}, stable signing)"
           source = Path("launcher/app/build/outputs/apk/release/app-release.apk")
           if not source.is_file():
               raise SystemExit(f"APK was not produced: {source}")
@@ -67,7 +100,7 @@ jobs:
 
           output = Path("dist")
           output.mkdir(exist_ok=True)
-          apk = output / f"tvhome-{version_name}-build{version_code}-debug-signed.apk"
+          apk = output / f"tvhome-{version_name}-build{version_code}-stable-signed.apk"
           shutil.copy2(source, apk)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"tag={tag}\n")
@@ -94,6 +127,6 @@ jobs:
           gh release create "$RELEASE_TAG" "$APK_PATH" \
             --title "$RELEASE_TITLE" \
             --latest \
-            --notes "Built from commit ${GITHUB_SHA}. APK size: ${APK_SIZE} bytes.
+            --notes "Built from commit ${GITHUB_SHA}. APK size: ${APK_SIZE} bytes. This APK is signed with the stable launcher release key.
 
-          This APK is debug-signed for sideloading. It is not a production signing build; a later APK signed with a different debug key may require uninstalling this version before installation."
+          To move from the earlier debug-signed APK, uninstall that build once before installing this one. Future builds signed with the same key can update it in place when versionCode increases."

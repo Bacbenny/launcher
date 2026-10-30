@@ -2,9 +2,29 @@ plugins {
     id 'com.android.application'
 }
 
+def stableSigningRequested = providers.gradleProperty('stableSigning').getOrElse('false').toBoolean()
+def stableKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+def stableKeystorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+if (stableSigningRequested &&
+        (!stableKeystorePath || !stableKeystorePassword || !file(stableKeystorePath).isFile())) {
+    throw new GradleException('Stable signing was requested, but the keystore path or password is missing.')
+}
+
 android {
     namespace 'com.gathin.tvhome'
     compileSdk 34
+
+    signingConfigs {
+        if (stableSigningRequested) {
+            stableRelease {
+                storeFile file(stableKeystorePath)
+                storePassword stableKeystorePassword
+                keyAlias 'launcher-release'
+                keyPassword stableKeystorePassword
+                storeType 'PKCS12'
+            }
+        }
+    }
 
     defaultConfig {
         // Opt-in identity for firmware with a package-name HOME allowlist; see docs/devices/xiaomi-mitv-aetp0-dofus.md.
@@ -21,8 +41,8 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Sideloaded over ADB, never published: sign with the debug key so it installs over a debug build.
-            signingConfig signingConfigs.debug
+            // Local builds keep debug signing; the release workflow opts into the stable key explicitly.
+            signingConfig stableSigningRequested ? signingConfigs.stableRelease : signingConfigs.debug
         }
     }
 
