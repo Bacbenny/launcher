@@ -1,0 +1,99 @@
+name: Build and publish launcher APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: launcher-apk-release
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platforms;android-34 build-tools;34.0.0
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+
+      - name: Test, lint, and build the launcher
+        working-directory: launcher
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+
+      - name: Prepare APK and release details
+        id: release
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import shutil
+          from pathlib import Path
+
+          gradle_file = Path("launcher/app/build.gradle").read_text(encoding="utf-8")
+          version_name = re.search(r"versionName\s+['\"]([^'\"]+)['\"]", gradle_file)
+          version_code = re.search(r"versionCode\s+(\d+)", gradle_file)
+          if not version_name or not version_code:
+              raise SystemExit("Could not read the launcher version from app/build.gradle")
+
+          version_name = version_name.group(1)
+          version_code = version_code.group(1)
+          tag = f"launcher-v{version_name}-build{version_code}"
+          title = f"Android TV Home Launcher {version_name} (build {version_code})"
+          source = Path("launcher/app/build/outputs/apk/release/app-release.apk")
+          if not source.is_file():
+              raise SystemExit(f"APK was not produced: {source}")
+
+          size = source.stat().st_size
+          if size >= 589824:
+              raise SystemExit(f"APK exceeds the 576 KiB size limit: {size} bytes")
+
+          output = Path("dist")
+          output.mkdir(exist_ok=True)
+          apk = output / f"tvhome-{version_name}-build{version_code}-debug-signed.apk"
+          shutil.copy2(source, apk)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"tag={tag}\n")
+              out.write(f"title={title}\n")
+              out.write(f"apk={apk.as_posix()}\n")
+              out.write(f"size={size}\n")
+          print(f"Prepared {apk} ({size} bytes)")
+          PY
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          APK_PATH: ${{ steps.release.outputs.apk }}
+          APK_SIZE: ${{ steps.release.outputs.size }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; bump versionCode before publishing another APK."
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" "$APK_PATH" \
+            --title "$RELEASE_TITLE" \
+            --latest \
+            --notes "Built from commit ${GITHUB_SHA}. APK size: ${APK_SIZE} bytes.
+
+          This APK is debug-signed for sideloading. It is not a production signing build; a later APK signed with a different debug key may require uninstalling this version before installation."
