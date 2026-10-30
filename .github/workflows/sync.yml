@@ -1,0 +1,42 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # GitHub Actions uses UTC: 19:00 UTC is 02:00 the next day in Vietnam.
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream main
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/Gathin23/cleanyourtv.git
+          git fetch --no-tags upstream \
+            refs/heads/main:refs/remotes/upstream/main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Upstream is already included."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit --no-ff upstream/main
+          git push origin "HEAD:${TARGET_BRANCH}"
