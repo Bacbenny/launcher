@@ -1,0 +1,11 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+The combined launcher is distributed under GNU GPL version 3 only.
+
+The complete license text is published by the Free Software Foundation at:
+https://www.gnu.org/licenses/gpl-3.0.txt
+
+This repository retains the original MIT notice for the launcher code that
+preceded the IPTV integration in LICENSE-MIT. See THIRD_PARTY_NOTICES.md for
+the upstream IPTV source and Android player library notices.

@@ -1,0 +1,12 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+This repository's combined launcher, including the integrated IPTV feature, is
+licensed under GNU GPL version 3 only. The license notice is in COPYING; the
+full license text is at https://www.gnu.org/licenses/gpl-3.0.txt.
+
+The pre-existing launcher code was originally distributed under MIT; its
+copyright and license notice is preserved in LICENSE-MIT. Third-party
+components and source attributions are listed in THIRD_PARTY_NOTICES.md.
+The Outfit typeface remains under the SIL Open Font License 1.1; see
+launcher/FONT-LICENSE-OFL.txt.
