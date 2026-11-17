@@ -57,12 +57,26 @@ jobs:
             exit 1
           fi
           chmod +x gradlew
-          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease -PstableSigning=true
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease -PstableSigning=true -PsplitApks=true
 
       - name: Verify stable APK signature
         run: |
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs \
-            launcher/app/build/outputs/apk/release/app-release.apk
+          set -euo pipefail
+          release_dir=launcher/app/build/outputs/apk/release
+          expected=("app-arm64-v8a-release.apk" "app-armeabi-v7a-release.apk")
+          actual_count=$(find "$release_dir" -maxdepth 1 -type f -name '*.apk' | wc -l)
+          if [[ "$actual_count" -ne "${#expected[@]}" ]]; then
+            echo "::error::Expected exactly ${#expected[@]} ABI APKs, found $actual_count"
+            exit 1
+          fi
+          for name in "${expected[@]}"; do
+            apk="$release_dir/$name"
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::Expected split APK was not produced: $apk"
+              exit 1
+            fi
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk"
+          done
 
       - name: Remove temporary signing key
         if: always()
@@ -89,25 +103,37 @@ jobs:
           version_name = version_name.group(1)
           version_code = version_code.group(1)
           tag = f"launcher-v{version_name}-build{version_code}-stable"
-          title = f"Android TV Home Launcher {version_name} (build {version_code}, stable signing)"
-          source = Path("launcher/app/build/outputs/apk/release/app-release.apk")
-          if not source.is_file():
-              raise SystemExit(f"APK was not produced: {source}")
-
-          size = source.stat().st_size
-          if size >= 134217728:
-              raise SystemExit(f"APK exceeds the 128 MiB embedded IPTV budget: {size} bytes")
+          title = f"Android TV Home Launcher {version_name} (build {version_code}, ARM64 and ARMv7)"
+          release_dir = Path("launcher/app/build/outputs/apk/release")
+          sources = {
+              "app-arm64-v8a-release.apk": "arm64-v8a",
+              "app-armeabi-v7a-release.apk": "armeabi-v7a",
+          }
+          actual_sources = {path.name for path in release_dir.glob("*.apk")}
+          if actual_sources != set(sources):
+              raise SystemExit(f"Expected exactly {sorted(sources)}, found {sorted(actual_sources)}")
+          total_size = 0
+          built_apks = []
+          for source_name, abi in sources.items():
+              source = release_dir / source_name
+              if not source.is_file():
+                  raise SystemExit(f"Expected split APK was not produced: {source}")
+              size = source.stat().st_size
+              if size >= 134217728:
+                  raise SystemExit(f"APK exceeds the 128 MiB embedded IPTV budget: {source_name} ({size} bytes)")
+              total_size += size
+              built_apks.append((source, abi, size))
 
           output = Path("dist")
           output.mkdir(exist_ok=True)
-          apk = output / f"tvhome-{version_name}-build{version_code}-stable-signed.apk"
-          shutil.copy2(source, apk)
+          for source, abi, size in built_apks:
+              apk = output / f"tvhome-{version_name}-build{version_code}-{abi}-stable-signed.apk"
+              shutil.copy2(source, apk)
+              print(f"Prepared {apk} ({size} bytes)")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"tag={tag}\n")
               out.write(f"title={title}\n")
-              out.write(f"apk={apk.as_posix()}\n")
-              out.write(f"size={size}\n")
-          print(f"Prepared {apk} ({size} bytes)")
+          print(f"Prepared {len(built_apks)} signed APKs ({total_size} bytes combined)")
           PY
 
       - name: Publish GitHub Release
@@ -115,18 +141,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TITLE: ${{ steps.release.outputs.title }}
-          APK_PATH: ${{ steps.release.outputs.apk }}
-          APK_SIZE: ${{ steps.release.outputs.size }}
+          APK_DIR: dist
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; bump versionCode before publishing another APK."
+            echo "Release $RELEASE_TAG already exists; bump versionCode before publishing another APK set."
             exit 1
           fi
 
-          gh release create "$RELEASE_TAG" "$APK_PATH" \
+          gh release create "$RELEASE_TAG" "$APK_DIR"/*.apk \
             --title "$RELEASE_TITLE" \
             --latest \
-            --notes "Built from commit ${GITHUB_SHA}. APK size: ${APK_SIZE} bytes. This APK is signed with the stable launcher release key.
+            --notes "Built from commit ${GITHUB_SHA}. Both APKs are signed with the stable launcher release key.
 
-          To move from the earlier debug-signed APK, uninstall that build once before installing this one. Future builds signed with the same key can update it in place when versionCode increases."
+          This release includes a 64-bit ARM (arm64-v8a) APK and a 32-bit ARM (armeabi-v7a) APK. Download only the file that matches your TV's architecture.
+
+          To move from the earlier debug-signed APK, uninstall that build once before installing one of these. Future stable builds can update in place when versionCode increases."

@@ -65,17 +65,32 @@ jobs:
         working-directory: launcher
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease -PsplitApks=true
       - name: Check embedded IPTV APK budget
         run: |
-          size=$(stat -c %s launcher/app/build/outputs/apk/release/app-release.apk)
-          echo "release APK: $((size / 1024)) KB"
-          test "$size" -lt 134217728 || { echo "APK is over 128 MiB; check that desktop ABIs and unused native libraries are not packaged"; exit 1; }
+          set -euo pipefail
+          release_dir=launcher/app/build/outputs/apk/release
+          expected=("app-arm64-v8a-release.apk" "app-armeabi-v7a-release.apk")
+          actual_count=$(find "$release_dir" -maxdepth 1 -type f -name '*.apk' | wc -l)
+          if [[ "$actual_count" -ne "${#expected[@]}" ]]; then
+            echo "::error::Expected exactly ${#expected[@]} ABI APKs, found $actual_count"
+            exit 1
+          fi
+          for name in "${expected[@]}"; do
+            apk="$release_dir/$name"
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::Expected split APK was not produced: $apk"
+              exit 1
+            fi
+            size=$(stat -c %s "$apk")
+            echo "$name: $((size / 1024)) KB"
+            test "$size" -lt 134217728 || { echo "::error::APK exceeds the 128 MiB budget: $name"; exit 1; }
+          done
       - name: Upload installable launcher APK
         if: github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: launcher-iptv-apk-${{ github.sha }}
-          path: launcher/app/build/outputs/apk/release/app-release.apk
+          name: launcher-iptv-apks-${{ github.sha }}
+          path: launcher/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
