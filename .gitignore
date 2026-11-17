@@ -21,4 +21,12 @@ bench-results/
 *.aab
 launcher/hs_err_pid*.log
 launcher/replay_pid*.log
+
+# Track the APK build and manual release workflows, but do not enable unrelated automation.
 .github/
+!.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/ci.yml
+!.github/workflows/release-launcher-apk.yml
