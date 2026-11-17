@@ -78,12 +78,12 @@ share their TV's list afterwards, follow [`docs/workflows/tv-list.md`](docs/work
 | `CODE_OF_CONDUCT.md` | Includes the rule against publishing device identifiers, Wi-Fi names and IPs. |
 | `examples/` | One folder per tested TV model: `debloat.txt`, `tv.json` (its row in the TV tables), sometimes a `README.md` and a `config.json`. Indexed in `examples/README.md`, whose table is generated too. |
 | `docs/` | `docs/TROUBLESHOOTING.md`, the module-card contract (`docs/modules.md`), `docs/devices/` for models with notes but no tested list, and the [workflows](#workflows). |
-| `launcher/` | The launcher, package `com.gathin.tvhome`: Java Home screen plus a Kotlin/Compose IPTV activity using Android libmpv, `minSdk` 26. |
+| `launcher/` | The launcher, package `com.gathin.tvhome`: Java Home screen plus a Kotlin/Compose IPTV activity using AndroidX Media3, `minSdk` 26. |
 | `themes/` | One folder per theme: `config.json`, a required `screenshot.jpg`, optional wallpapers. Keys are documented in `themes/README.md`. |
 | `addons/` | Optional module-card apps, each its own Gradle project, never built into the launcher. |
 | `tools/` | The ADB client (`tv.py`) and the scripts, listed in the README's Tools table. Shell scripts have PowerShell twins. Each script's usage is in its first lines, and the larger ones have a guide beside them (`tools/*.md`): read it before running the script. |
 | `tests/` | Python `unittest` suite: list format, README tables, press counts, themes, add-ons, the Home guard and the tools against fake TVs. |
-| `.github/workflows/` | `ci.yml` (tests, launcher build, embedded-IPTV APK budget and push artifact), `addons.yml`, `maintainer-bot.yml`. |
+| `.github/workflows/` | `ci.yml` (tests, launcher build, IPTV APK budget and push artifact), `addons.yml`, `maintainer-bot.yml`. |
 | `.github/maintainer/MAINTAINER.md` | The review policy the maintainer and the PR bot apply. |
 | `.github/pull_request_template.md` | The PR checklist. Fill it in. |
 
@@ -143,7 +143,7 @@ Never do these in a PR:
 - **No uninstalling.** No `pm uninstall` in a list or a script. `pm hide` or `pm block` only with the matching
   undo written in the list header.
 - **IPTV is the only networked launcher feature:** requests happen only when a person adds/syncs a source or plays a channel. Do not add analytics, telemetry, background refresh, or network work to Home/services.
-- **The IPTV screen's Kotlin/Compose and Android libmpv dependencies are intentional.** Do not add unrelated launcher dependencies without discussing them first.
+- **The IPTV screen's Kotlin/Compose and AndroidX Media3 dependencies are intentional.** Do not add unrelated launcher dependencies without discussing them first.
 - **No changes to the safety rules** in `PROMPT.md`, the Home guard and other safety checks in
   `tools/disable.sh`, `tools/check.py` and `launcher/build-and-install.sh`, or the list of packages the TV
   needs, without the maintainer.

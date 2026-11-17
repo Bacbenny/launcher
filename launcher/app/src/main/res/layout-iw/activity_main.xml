@@ -241,6 +241,7 @@
                             android:letterSpacing="0.14"
                             android:textAllCaps="true"
                             android:visibility="gone" />
+
                 </LinearLayout>
 
                 <View
@@ -317,9 +318,20 @@
             <!-- Shown only when show_stats is on. Outside leftBlock, so the top buttons stay level with the clock
                  row; gone, it takes no space. -->
             <TextView
+                android:id="@+id/btnIptv"
+                style="@style/TopButton"
+                android:layout_alignParentStart="true"
+                android:layout_below="@id/leftBlock"
+                android:layout_marginStart="0dp"
+                android:layout_marginTop="10dp"
+                android:drawableStart="@drawable/ic_livetv"
+                android:nextFocusDown="@+id/grid"
+                android:text="@string/live_tv" />
+
+            <TextView
                 android:id="@+id/stats"
                 android:layout_width="wrap_content"
-                android:layout_below="@id/leftBlock"
+                android:layout_below="@id/btnIptv"
                 android:layout_alignStart="@id/leftBlock"
                 android:layout_alignEnd="@id/leftBlock"
                 android:gravity="right"

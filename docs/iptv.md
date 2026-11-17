@@ -1,7 +1,7 @@
 # Built-in IPTV
 
-The IPTV tile opens an Android TV-focused channel browser without changing the launcher's Java Home
-screen or its default-home behavior.
+The Live TV button on Home opens an Android TV-focused channel browser without changing the launcher's
+Java Home screen or its default-home behavior.
 
 ## Sources and synchronization
 
@@ -21,10 +21,10 @@ The screen is landscape, uses Compose focusable controls with a visible teal foc
 remote D-pad navigation. Back returns from playback to the channel list and from the list to Home.
 Play/Pause, Media Play and Media Pause keys toggle playback.
 
-Android playback uses `io.github.abdallahmehiz:mpv-android-lib`, not Nuvio's Apple-only MPVKit submodule.
-The player uses MPV's GPU video output and `hwdec=auto-safe`, which selects hardware decoding only for
-codecs supported safely by the device. The release targets `arm64-v8a` and `armeabi-v7a`; playback still
-needs validation on the specific TV and provider stream.
+Android playback uses AndroidX Media3 (ExoPlayer) with HLS, DASH and MPEG-TS support. M3U metadata
+supports ClearKey JSON or hexadecimal key pairs and Widevine license URLs; stream and license requests
+reuse playlist User-Agent, Referer and Cookie headers. The APK is universal and contains no MPV/FFmpeg
+native libraries. Playback still depends on the specific TV's codecs, DRM support and provider stream.
 
 ## Network and privacy
 

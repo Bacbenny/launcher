@@ -2,8 +2,8 @@
 
 [Back to the README](../README.md#the-launcher)
 
-An Android TV home screen with an optional built-in IPTV tile. The Home experience remains native Java;
-the IPTV screen uses Kotlin and Jetpack Compose, with Android libmpv for playback. IPTV is local-first:
+An Android TV home screen with a built-in Live TV entry. The Home experience remains native Java;
+the IPTV screen uses Kotlin and Jetpack Compose with AndroidX Media3 (ExoPlayer) for playback. IPTV is local-first:
 M3U/Xtream sources and cached channel lists are encrypted on the TV, and remote playlists can be refreshed
 when requested. The embedded player makes the install APK substantially larger than the original launcher.
 This page has the details the README leaves out: settings, languages, IPTV, remote keys and building it
@@ -25,16 +25,16 @@ and `sdkmanager "platforms;android-34" "build-tools;34.0.0"`. On Linux the insta
 
 ## IPTV
 
-The Home app list includes an **IPTV** tile. The screen supports a remote M3U URL, an imported local M3U
+The Home screen's **Live TV** button opens the IPTV screen. It supports a remote M3U URL, an imported local M3U
 file, or an Xtream account. Saved source data, Xtream credentials, local playlist text and cached channel
 URLs are encrypted with an Android Keystore AES-GCM key. A failed refresh leaves the previous cached
 channels available. “Sync all” refreshes each enabled remote source; it does not sync data between devices
 or use a cloud account.
 
 The channel list supports search, groups, D-pad focus borders, Back navigation and the remote's
-Play/Pause keys. Playback uses Android libmpv with `hwdec=auto-safe` on ARM TV builds (`arm64-v8a` and
-`armeabi-v7a`). This is the Android libmpv wrapper used by Nuvio Enhanced; Nuvio's MPVKit submodule is an
-Apple-platform package and is not used here. See [`docs/iptv.md`](iptv.md) and
+Play/Pause keys. Media3 playback supports HLS, DASH and MPEG-TS using the Android platform's available
+decoders. One APK is built for all device ABIs; it contains no bundled MPV/FFmpeg native libraries. See
+[`docs/iptv.md`](iptv.md) and
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for details and licenses.
 
 IPTV providers may expose unencrypted HTTP endpoints. The app warns before adding HTTP URLs, but it cannot

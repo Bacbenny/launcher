@@ -134,7 +134,13 @@ internal object IptvStorage {
                                             .put("logoUrl", channel.logoUrl)
                                             .put("group", channel.group)
                                             .put("epgId", channel.epgId)
-                                            .put("headers", JSONObject(channel.headers)),
+                                            .put("headers", JSONObject(channel.headers))
+                                            .put("drm", channel.drm?.let { drm ->
+                                                JSONObject()
+                                                    .put("scheme", drm.scheme)
+                                                    .put("licenseUrl", drm.licenseUrl)
+                                                    .put("licenseKey", drm.licenseKey)
+                                            }),
                                     )
                                 }
                             }),
@@ -162,6 +168,15 @@ internal object IptvStorage {
                         put(key, headerObject.optString(key))
                     }
                 }
+                val drmObject = channel.optJSONObject("drm")
+                val drm = drmObject?.let {
+                    val scheme = it.optString("scheme")
+                    if (scheme.isBlank()) null else IptvDrmConfig(
+                        scheme = scheme,
+                        licenseUrl = it.optString("licenseUrl"),
+                        licenseKey = it.optString("licenseKey"),
+                    )
+                }
                 IptvChannel(
                     id = channel.getString("id"),
                     sourceId = channel.getString("sourceId"),
@@ -171,6 +186,7 @@ internal object IptvStorage {
                     group = channel.optString("group"),
                     epgId = channel.optString("epgId"),
                     headers = channelHeaders,
+                    drm = drm,
                 )
             }
             IptvSource(

@@ -32,6 +32,13 @@ internal data class IptvChannel(
     val group: String = "",
     val epgId: String = "",
     val headers: Map<String, String> = emptyMap(),
+    val drm: IptvDrmConfig? = null,
+)
+
+internal data class IptvDrmConfig(
+    val scheme: String,
+    val licenseUrl: String = "",
+    val licenseKey: String = "",
 )
 
 internal data class IptvSyncResult(

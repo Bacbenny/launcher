@@ -11,7 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 
 class IptvActivity : ComponentActivity() {
-    private var activePlayer: IptvMpvSurface? = null
+    private var activePlayer: IptvMedia3PlayerView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

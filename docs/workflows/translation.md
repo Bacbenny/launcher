@@ -29,7 +29,7 @@
    the default `strings.xml`. A missing string falls back to English (`launcher/app/lint.xml`), but a new switch
    needs its strings in every locale.
 6. Moving hard-coded text into resources is welcome; do not bundle unrelated build changes with it.
-7. Check the size gate before you push. The release APK, including the embedded Android MPV player, must
+7. Check the size gate before you push. The release APK, including the Media3-based IPTV player, must
    stay under 134,217,728 B (128 MiB): `launcher/app/build/outputs/apk/release/app-release.apk`, measured
    with `stat -c %s` on Linux or `stat -f %z` on macOS, and checked by the "Launcher build and unit tests"
    job on every pull request. The push-to-main job also retains the installable APK as a 14-day workflow

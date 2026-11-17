@@ -777,8 +777,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
 
         btnInputs = findViewById(R.id.btnInputs);
+        View btnIptv = findViewById(R.id.btnIptv);
         View btnSettings = findViewById(R.id.btnSettings);
         btnInputs.setOnClickListener(v -> showInputs());
+        btnIptv.setOnClickListener(v -> startActivity(new Intent(this, com.gathin.tvhome.iptv.IptvActivity.class)));
         btnWifi.setOnClickListener(v -> openNetworkPill());
         btnVpn.setOnClickListener(v -> openVpnPill());
         btnWifi.setOnLongClickListener(v -> {
@@ -872,6 +874,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == rightButton;
         };
         btnInputs.setOnKeyListener(pillKeys);
+        btnIptv.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                focusTile(0);
+                return true;
+            }
+            return keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+        });
         btnWifi.setOnKeyListener(pillKeys);
         btnVpn.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
@@ -879,7 +890,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnLibraryTop.setOnKeyListener(pillKeys);
         for (View button : topAppButtons) button.setOnKeyListener(pillKeys);
         if (advancedEffects) {
-            List<View> pills = new ArrayList<>(Arrays.asList(btnInputs, btnWifi, btnVpn, btnReorder, btnLibraryTop, btnSettings));
+            List<View> pills = new ArrayList<>(Arrays.asList(btnInputs, btnIptv, btnWifi, btnVpn, btnReorder, btnLibraryTop, btnSettings));
             pills.addAll(topAppButtons);
             for (View button : pills) {
                 button.setOnFocusChangeListener((view, focused) -> view.animate()

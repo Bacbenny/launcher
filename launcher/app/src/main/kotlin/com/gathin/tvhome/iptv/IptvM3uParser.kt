@@ -21,6 +21,8 @@ internal object IptvM3uParser {
         val channels = ArrayList<IptvChannel>()
         var pendingInfo: Info? = null
         val pendingHeaders = linkedMapOf<String, String>()
+        val globalDrmProperties = linkedMapOf<String, String>()
+        val pendingDrmProperties = linkedMapOf<String, String>()
         var pendingGroup: String? = null
 
         text.removePrefix("\uFEFF").lineSequence().forEach { rawLine ->
@@ -32,7 +34,16 @@ internal object IptvM3uParser {
                     pendingInfo = parseInfo(line)
                     pendingHeaders.clear()
                     pendingInfo?.headers?.let(pendingHeaders::putAll)
+                    pendingDrmProperties.clear()
+                    pendingDrmProperties.putAll(globalDrmProperties)
                     pendingGroup = null
+                }
+
+                line.startsWith("#KODIPROP:", ignoreCase = true) -> {
+                    parseKodiProperty(line.substringAfter(':'))?.let { (key, value) ->
+                        val destination = if (pendingInfo == null) globalDrmProperties else pendingDrmProperties
+                        destination[key] = value
+                    }
                 }
 
                 line.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
@@ -48,9 +59,10 @@ internal object IptvM3uParser {
                 line.startsWith("#") -> Unit
 
                 pendingInfo != null -> {
-                    val (streamUrl, inlineHeaders) = parseStreamUrl(line)
+                    val (streamUrl, inlineHeaders) = parseUrlAndHeaders(line)
                     if (streamUrl.isNotBlank() && isSupportedStreamUrl(streamUrl)) {
                         pendingHeaders.putAll(inlineHeaders)
+                        val drm = parseDrm(pendingDrmProperties, pendingHeaders)
                         val info = pendingInfo!!
                         val stablePart = info.epgId.ifBlank {
                             "${streamUrl.hashCode().toUInt().toString(16)}-${channels.size}"
@@ -64,6 +76,7 @@ internal object IptvM3uParser {
                             group = pendingGroup?.takeIf(String::isNotBlank) ?: info.group,
                             epgId = info.epgId,
                             headers = pendingHeaders.toMap(),
+                            drm = drm,
                         )
                         require(channels.size <= MAX_CHANNELS) {
                             "Playlist has more than $MAX_CHANNELS channels."
@@ -123,12 +136,54 @@ internal object IptvM3uParser {
         return headerName to value.substring(separator + 1).trim()
     }
 
-    private fun parseStreamUrl(line: String): Pair<String, Map<String, String>> {
+    private fun parseKodiProperty(value: String): Pair<String, String>? {
+        val separator = value.indexOf('=')
+        if (separator <= 0) return null
+        val key = value.substring(0, separator).trim().lowercase()
+        if (key !in setOf(
+                "inputstream.adaptive.license_type",
+                "inputstream.adaptive.license_key",
+            )
+        ) {
+            return null
+        }
+        return key to value.substring(separator + 1).trim()
+    }
+
+    private fun parseDrm(
+        properties: Map<String, String>,
+        headers: MutableMap<String, String>,
+    ): IptvDrmConfig? {
+        val rawScheme = properties["inputstream.adaptive.license_type"]?.trim().orEmpty()
+        if (rawScheme.isBlank()) return null
+        val scheme = when (rawScheme.lowercase()) {
+            "org.w3.clearkey", "clearkey", "clear-key" -> "clearkey"
+            "com.widevine.alpha", "widevine" -> "widevine"
+            else -> rawScheme
+        }
+        val rawKey = properties["inputstream.adaptive.license_key"]?.trim().orEmpty()
+        val keyParts = rawKey.split('|', limit = 2)
+        if (keyParts.size == 2) headers.putAll(parseHeaderString(keyParts[1]))
+        val keyOrUrl = keyParts.first().trim()
+        val isLicenseUrl = keyOrUrl.startsWith("https://", ignoreCase = true) ||
+            keyOrUrl.startsWith("http://", ignoreCase = true)
+        return IptvDrmConfig(
+            scheme = scheme,
+            licenseUrl = keyOrUrl.takeIf { isLicenseUrl }.orEmpty(),
+            licenseKey = keyOrUrl.takeUnless { isLicenseUrl }.orEmpty(),
+        )
+    }
+
+    private fun parseUrlAndHeaders(line: String): Pair<String, Map<String, String>> {
         val separator = line.indexOf('|')
         if (separator < 0) return line.trim() to emptyMap()
         val streamUrl = line.substring(0, separator).trim()
+        return streamUrl to parseHeaderString(line.substring(separator + 1))
+    }
+
+    private fun parseHeaderString(value: String): Map<String, String> {
         val headers = linkedMapOf<String, String>()
-        line.substring(separator + 1).split('&').forEach { component ->
+        value.split('&').forEach { component ->
             val equals = component.indexOf('=')
             if (equals <= 0) return@forEach
             val key = decode(component.substring(0, equals)).trim().lowercase()
@@ -141,7 +196,7 @@ internal object IptvM3uParser {
             }
             if (canonical != null && value.isNotEmpty()) headers[canonical] = value
         }
-        return streamUrl to headers
+        return headers
     }
 
     private fun isSupportedStreamUrl(value: String): Boolean =

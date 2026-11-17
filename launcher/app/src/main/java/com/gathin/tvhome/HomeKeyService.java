@@ -225,6 +225,8 @@ public class HomeKeyService extends AccessibilityService {
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null && (!stockHome.isEmpty() || !powerOnLiveTv.isEmpty() || watchFront)) {
             info.eventTypes |= AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
+            // Updating event subscriptions can clear the XML key-filter flag on several Android TV builds.
+            if (config.keyFilter) info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
             setServiceInfo(info);
         }
         if (!stockHome.isEmpty() || !powerOnLiveTv.isEmpty()) probeAtBoot();

@@ -68,7 +68,7 @@ import java.util.Locale
 internal fun IptvScreen(
     repository: IptvRepository,
     onExit: () -> Unit,
-    onPlayerChanged: (IptvMpvSurface?) -> Unit,
+    onPlayerChanged: (IptvMedia3PlayerView?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -556,7 +556,7 @@ private fun IptvPlayerScreen(
     channels: List<IptvChannel>,
     onExitPlayer: () -> Unit,
     onChannelSelected: (IptvChannel) -> Unit,
-    onPlayerChanged: (IptvMpvSurface?) -> Unit,
+    onPlayerChanged: (IptvMedia3PlayerView?) -> Unit,
 ) {
     var playerError by remember(channel.id) { mutableStateOf<String?>(null) }
     BackHandler(onBack = onExitPlayer)
@@ -564,7 +564,7 @@ private fun IptvPlayerScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
-                IptvMpvSurface(context) { message ->
+                IptvMedia3PlayerView(context) { message ->
                     playerError = message
                 }.also { player ->
                     onPlayerChanged(player)
@@ -593,7 +593,7 @@ private fun IptvPlayerScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(channel.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        listOfNotNull(channel.group.takeIf(String::isNotBlank), "MPV · hardware decode auto-safe")
+                        listOfNotNull(channel.group.takeIf(String::isNotBlank), "Media3 · HLS / DASH / TS")
                             .joinToString("  •  "),
                         color = Color(0xFFB9C4D2),
                     )

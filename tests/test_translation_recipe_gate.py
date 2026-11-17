@@ -2,7 +2,7 @@
 
 `docs/workflows/translation.md` is the only page a translator reads. Its step 1 asks for every string
 in `values/strings.xml`, so a full language is by far the largest thing a translation pull request
-adds to `launcher/app/src/main/res/` - and the release APK has a hard budget for the embedded Android MPV:
+adds to `launcher/app/src/main/res/` - and the release APK has a hard budget for the embedded Media3 player:
 `.github/workflows/ci.yml`'s `launcher` job, which runs on every pull request in `launcher/`, measures
 `launcher/app/build/outputs/apk/release/app-release.apk` and fails the build at 134,217,728 B (128 MiB).
 Until now the page did not describe the embedded-player budget, so a contributor could follow the recipe

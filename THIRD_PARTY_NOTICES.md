@@ -1,22 +1,17 @@
 # Third-party notices
 
+## AndroidX Media3
+
+The IPTV player uses AndroidX Media3 (ExoPlayer), including its HLS, DASH and UI
+modules. Media3 is distributed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+
 ## Nuvio Enhanced IPTV source
 
 The playlist metadata handling and Live TV feature structure were adapted from
 [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced),
 copyright its respective contributors and distributed under GNU GPL version 3.
 The integrated IPTV feature is distributed under GPL-3.0-only; see `COPYING`.
-
-## Android libmpv wrapper
-
-The player uses
-[`io.github.abdallahmehiz:mpv-android-lib:0.1.12`](https://github.com/abdallahmehiz/mpv-android),
-an Android libmpv wrapper distributed under the MIT License. Its native MPV
-components and their notices are provided by that dependency; see its source
-repository for the exact MPV build and included license notices.
-
-The `MPVKit` submodule in Nuvio Enhanced is an Apple-platform package and is not
-used in this Android application. Android uses the Android libmpv wrapper above.
 
 ## Existing launcher and typeface
 
