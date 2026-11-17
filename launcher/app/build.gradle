@@ -47,9 +47,11 @@ android {
         targetSdk 34
         versionCode 13
         versionName '3.2'
-        ndk {
-            // Android TV hardware is ARM; omit desktop ABIs from the bundled native mpv player.
-            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        if (!splitApksRequested) {
+            ndk {
+                // Android TV hardware is ARM; omit desktop ABIs from the bundled native mpv player.
+                abiFilters 'arm64-v8a', 'armeabi-v7a'
+            }
         }
     }
 
