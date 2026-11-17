@@ -45,8 +45,13 @@ internal class IptvMpvSurface(
         val cacheDir = File(appContext.cacheDir, "iptv/mpv").apply { mkdirs() }
         var createdPlayer: MPV? = null
         try {
-            val player = MPV(appContext, configDir.absolutePath, cacheDir.absolutePath)
+            val player = MPV()
             createdPlayer = player
+            player.create(appContext)
+            player.setOptionString("config", "yes")
+            player.setOptionString("config-dir", configDir.absolutePath)
+            player.setOptionString("gpu-shader-cache-dir", cacheDir.absolutePath)
+            player.setOptionString("icc-cache-dir", cacheDir.absolutePath)
             // auto-safe selects MediaCodec hardware decoding only for codecs the device supports.
             player.setOptionString("hwdec", "auto-safe")
             player.setOptionString("vo", "gpu")
@@ -54,19 +59,21 @@ internal class IptvMpvSurface(
             player.setOptionString("cache", "yes")
             player.setOptionString("demuxer-readahead-secs", "10")
             player.setOptionString("audio-display", "no")
+            player.init()
+            // Set post-init options after libmpv has created its core.
             player.setOptionString("force-window", "no")
             // Avoid writing provider URLs (which can contain credentials) to device logs.
             player.setOptionString("msg-level", "all=no")
             mpv = player
             if (released.get()) {
-                player.close()
+                player.destroy()
                 mpv = null
             }
         } catch (_: Exception) {
-            runCatching { createdPlayer?.close() }
+            runCatching { createdPlayer?.takeIf { it.isInitialized }?.destroy() }
             reportError()
         } catch (_: LinkageError) {
-            runCatching { createdPlayer?.close() }
+            runCatching { createdPlayer?.takeIf { it.isInitialized }?.destroy() }
             reportError()
         }
     }
@@ -147,7 +154,7 @@ internal class IptvMpvSurface(
                 try {
                     detachSurface()
                     mpv?.command("stop")
-                    mpv?.close()
+                    mpv?.destroy()
                     mpv = null
                 } finally {
                     playerExecutor.shutdown()

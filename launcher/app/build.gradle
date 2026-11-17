@@ -33,7 +33,7 @@ android {
         applicationId providers.gradleProperty('launcherApplicationId').getOrElse('com.gathin.tvhome')
         minSdk 26
         targetSdk 34
-        versionCode 11
+        versionCode 12
         versionName '3.2'
         ndk {
             // Android TV hardware is ARM; omit desktop ABIs from the bundled native mpv player.
