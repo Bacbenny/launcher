@@ -26,7 +26,7 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 internal class IptvMedia3PlayerView(
     context: Context,
     private val onError: (String) -> Unit = {},
