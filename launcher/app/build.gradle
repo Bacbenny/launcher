@@ -80,7 +80,8 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    def media3Version = '1.5.1'
+    // Media3 1.4.1 is the latest compatible line for this project's compileSdk 34 / AGP 8.5.2.
+    def media3Version = '1.4.1'
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
     implementation "androidx.media3:media3-exoplayer-dash:$media3Version"
