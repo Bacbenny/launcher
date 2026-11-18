@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,6 +66,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 internal fun IptvScreen(
     repository: IptvRepository,
     onExit: () -> Unit,
@@ -550,6 +552,7 @@ private fun ChannelCard(channel: IptvChannel, onClick: () -> Unit) {
 }
 
 @Composable
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun IptvPlayerScreen(
     channel: IptvChannel,
     channelIndex: Int,

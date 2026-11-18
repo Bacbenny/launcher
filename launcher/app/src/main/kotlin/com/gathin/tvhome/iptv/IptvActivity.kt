@@ -9,7 +9,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.media3.common.util.UnstableApi
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class IptvActivity : ComponentActivity() {
     private var activePlayer: IptvMedia3PlayerView? = null
 
