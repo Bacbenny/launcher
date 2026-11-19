@@ -2,8 +2,10 @@ package com.gathin.tvhome.iptv
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import com.gathin.tvhome.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -11,6 +13,7 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -25,17 +28,36 @@ internal object IptvStorage {
     private const val FILE_NAME = "iptv-state.enc"
     private const val FORMAT_VERSION: Byte = 1
 
-    fun load(context: Context): List<IptvSource> {
+    fun load(context: Context): IptvStorageLoadResult {
         val atomic = stateFile(context)
-        if (!atomic.baseFile.exists()) return emptyList()
+        if (!atomic.baseFile.exists()) {
+            val warning = if (hasUnreadableBackup(context)) {
+                R.string.iptv_warning_saved_data_preserved
+            } else {
+                null
+            }
+            return IptvStorageLoadResult(emptyList(), warning)
+        }
         return try {
             val encoded = atomic.openRead().use { it.readBytes() }
             val cleartext = decrypt(encoded)
-            decodeSources(String(cleartext, StandardCharsets.UTF_8))
+            IptvStorageLoadResult(decodeSources(String(cleartext, StandardCharsets.UTF_8)))
         } catch (error: IptvRepositoryException) {
-            throw error
+            if (error.messageResId == R.string.iptv_error_saved_data_version ||
+                error.messageResId == R.string.iptv_error_saved_data_format
+            ) {
+                throw error
+            }
+            if (preserveUnreadableIptvFile(atomic.baseFile) == null) {
+                throw IptvRepositoryException(R.string.iptv_error_saved_data_unreadable, cause = error)
+            }
+            IptvStorageLoadResult(emptyList(), R.string.iptv_warning_saved_data_preserved)
         } catch (error: Exception) {
-            throw IptvRepositoryException("Saved IPTV data could not be opened. It was not overwritten.", error)
+            if (preserveUnreadableIptvFile(atomic.baseFile) == null) {
+                throw IptvRepositoryException(R.string.iptv_error_saved_data_unreadable, cause = error)
+            }
+            if (hasInvalidatedKey(error)) runCatching(::replaceInvalidatedKey)
+            IptvStorageLoadResult(emptyList(), R.string.iptv_warning_saved_data_preserved)
         }
     }
 
@@ -50,7 +72,7 @@ internal object IptvStorage {
             stream = null
         } catch (error: Exception) {
             stream?.let(atomic::failWrite)
-            throw IptvRepositoryException("Could not securely save IPTV data.", error)
+            throw IptvRepositoryException(R.string.iptv_error_save_data, cause = error)
         }
     }
 
@@ -75,11 +97,11 @@ internal object IptvStorage {
 
     private fun decrypt(encoded: ByteArray): ByteArray {
         if (encoded.size < 2 || encoded[0] != FORMAT_VERSION) {
-            throw IptvRepositoryException("Saved IPTV data has an unsupported format.")
+            throw IptvRepositoryException(R.string.iptv_error_saved_data_format)
         }
         val ivSize = encoded[1].toInt() and 0xff
         if (ivSize !in 12..16 || encoded.size <= 2 + ivSize) {
-            throw IptvRepositoryException("Saved IPTV data is incomplete.")
+            throw IptvRepositoryException(R.string.iptv_error_saved_data_incomplete)
         }
         val iv = encoded.copyOfRange(2, 2 + ivSize)
         val ciphertext = encoded.copyOfRange(2 + ivSize, encoded.size)
@@ -152,7 +174,7 @@ internal object IptvStorage {
     private fun decodeSources(json: String): List<IptvSource> {
         val root = JSONObject(json)
         if (root.optInt("version") != 1) {
-            throw IptvRepositoryException("Saved IPTV data has an unsupported version.")
+            throw IptvRepositoryException(R.string.iptv_error_saved_data_version)
         }
         val sources = root.optJSONArray("sources") ?: return emptyList()
         return List(sources.length()) { index ->
@@ -193,7 +215,7 @@ internal object IptvStorage {
                 id = item.getString("id"),
                 name = item.getString("name"),
                 type = runCatching { IptvSourceType.valueOf(item.getString("type")) }
-                    .getOrElse { throw IptvRepositoryException("Saved IPTV source type is invalid.", it) },
+                    .getOrElse { throw IptvRepositoryException(R.string.iptv_error_saved_source_type, cause = it) },
                 url = item.optString("url"),
                 username = item.optString("username"),
                 password = item.optString("password"),
@@ -203,6 +225,23 @@ internal object IptvStorage {
                 cachedChannels = channels,
             )
         }
+    }
+
+    private fun hasUnreadableBackup(context: Context): Boolean =
+        context.filesDir.listFiles { _, name ->
+            name.startsWith("$FILE_NAME$IPTV_UNREADABLE_BACKUP_MARKER")
+        }
+            ?.isNotEmpty() == true
+
+    private fun hasInvalidatedKey(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any {
+            it is KeyPermanentlyInvalidatedException || it is UnrecoverableKeyException
+        }
+
+    private fun replaceInvalidatedKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (keyStore.containsAlias(KEY_ALIAS)) keyStore.deleteEntry(KEY_ALIAS)
+        getOrCreateKey()
     }
 
 }

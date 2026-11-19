@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.util.Base64
+import com.gathin.tvhome.R
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -111,10 +112,10 @@ internal class IptvMedia3PlayerView(
         val uuid = when (drm.scheme.lowercase(Locale.ROOT)) {
             "clearkey", "org.w3.clearkey", "clear-key" -> C.CLEARKEY_UUID
             "widevine", "com.widevine.alpha" -> C.WIDEVINE_UUID
-            else -> throw IllegalArgumentException("This playlist uses an unsupported DRM system.")
+            else -> throw IllegalArgumentException(appContext.getString(R.string.iptv_error_drm_unsupported))
         }
         if (uuid == C.WIDEVINE_UUID && drm.licenseUrl.isBlank()) {
-            throw IllegalArgumentException("The Widevine playlist entry has no license server URL.")
+            throw IllegalArgumentException(appContext.getString(R.string.iptv_error_widevine_license_url))
         }
         return MediaItem.DrmConfiguration.Builder(uuid)
             .apply {
@@ -137,7 +138,7 @@ internal class IptvMedia3PlayerView(
             }
         }
         val response = clearKeyResponse(drm.licenseKey)
-            ?: throw IllegalArgumentException("The ClearKey value must be JSON or a hexadecimal key-id:key pair.")
+            ?: throw IllegalArgumentException(appContext.getString(R.string.iptv_error_clearkey_format))
         val manager = DefaultDrmSessionManager.Builder()
             .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
             .build(LocalMediaDrmCallback(response))
@@ -219,6 +220,6 @@ internal class IptvMedia3PlayerView(
     }
 
     private fun reportError() {
-        onError("Playback could not start. Check the stream URL, provider access, DRM data, or device codec support.")
+        onError(appContext.getString(R.string.iptv_error_playback))
     }
 }

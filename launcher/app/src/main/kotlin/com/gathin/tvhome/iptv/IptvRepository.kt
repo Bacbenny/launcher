@@ -1,6 +1,7 @@
 package com.gathin.tvhome.iptv
 
 import android.content.Context
+import com.gathin.tvhome.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -12,13 +13,15 @@ import java.util.UUID
 internal class IptvRepository(context: Context) {
     private val appContext = context.applicationContext
 
-    fun loadSources(): List<IptvSource> = IptvStorage.load(appContext)
+    fun loadSources(): List<IptvSource> = loadSourcesState().sources
+
+    fun loadSourcesState(): IptvStorageLoadResult = IptvStorage.load(appContext)
 
     fun addM3uUrl(name: String, url: String): IptvSource {
         val sourceUrl = validateHttpUrl(url)
         val source = IptvSource(
             id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { "M3U playlist" },
+            name = name.trim().ifBlank { appContext.getString(R.string.iptv_default_m3u_name) },
             type = IptvSourceType.M3U_URL,
             url = sourceUrl,
         )
@@ -27,15 +30,18 @@ internal class IptvRepository(context: Context) {
     }
 
     fun addLocalM3u(name: String, fileName: String, content: String): IptvSource {
-        require(content.isNotBlank()) { "The selected file is empty." }
-        require(content.length <= MAX_PLAYLIST_CHARS) { "Playlist file is too large." }
+        iptvRequire(content.isNotBlank(), R.string.iptv_error_selected_file_empty)
+        iptvRequire(content.length <= MAX_PLAYLIST_CHARS, R.string.iptv_error_playlist_too_large)
         val source = IptvSource(
             id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { fileName.substringBeforeLast('.', fileName).ifBlank { "Local M3U" } },
+            name = name.trim().ifBlank {
+                fileName.substringBeforeLast('.', fileName)
+                    .ifBlank { appContext.getString(R.string.iptv_default_local_m3u_name) }
+            },
             type = IptvSourceType.M3U_FILE,
             localContent = content,
         )
-        val parsed = IptvM3uParser.parse(content, source)
+        val parsed = parseM3u(content, source)
         addSource(source.copy(cachedChannels = parsed, lastSyncedAt = System.currentTimeMillis()))
         return source
     }
@@ -43,12 +49,10 @@ internal class IptvRepository(context: Context) {
     fun addXtream(name: String, server: String, username: String, password: String): IptvSource {
         val endpoint = validateHttpUrl(server, forbidUserInfo = true)
             .trimEnd('/').removeSuffix("/player_api.php").trimEnd('/')
-        require(username.isNotBlank() && password.isNotBlank()) {
-            "Enter both the Xtream username and password."
-        }
+        iptvRequire(username.isNotBlank() && password.isNotBlank(), R.string.iptv_error_xtream_credentials_required)
         val source = IptvSource(
             id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { "Xtream" },
+            name = name.trim().ifBlank { appContext.getString(R.string.iptv_default_xtream_name) },
             type = IptvSourceType.XTREAM,
             url = endpoint,
             username = username.trim(),
@@ -65,12 +69,12 @@ internal class IptvRepository(context: Context) {
     fun syncSource(sourceId: String): IptvSource {
         val sources = loadSources()
         val source = sources.firstOrNull { it.id == sourceId }
-            ?: throw IptvRepositoryException("Playlist no longer exists.")
+            ?: throw IptvRepositoryException(R.string.iptv_error_playlist_missing)
         val channels = when (source.type) {
             IptvSourceType.M3U_URL ->
-                IptvM3uParser.parse(requestText(source.url), source)
+                parseM3u(requestText(source.url), source)
             IptvSourceType.M3U_FILE ->
-                IptvM3uParser.parse(source.localContent, source)
+                parseM3u(source.localContent, source)
             IptvSourceType.XTREAM ->
                 fetchXtreamChannels(source)
         }
@@ -97,8 +101,12 @@ internal class IptvRepository(context: Context) {
 
     private fun addSource(source: IptvSource) {
         val existing = loadSources()
-        require(existing.size < MAX_SOURCES) { "A maximum of $MAX_SOURCES sources can be saved." }
-        require(existing.none { candidate ->
+        iptvRequire(
+            existing.size < MAX_SOURCES,
+            R.string.iptv_error_max_sources,
+            MAX_SOURCES,
+        )
+        iptvRequire(existing.none { candidate ->
             when (source.type) {
                 IptvSourceType.M3U_URL ->
                     candidate.type == source.type && candidate.url.equals(source.url, ignoreCase = true)
@@ -108,7 +116,7 @@ internal class IptvRepository(context: Context) {
                         candidate.username == source.username
                 IptvSourceType.M3U_FILE -> false
             }
-        }) { "This source is already saved." }
+        }, R.string.iptv_error_duplicate_source)
         saveSources(existing + source)
     }
 
@@ -128,10 +136,14 @@ internal class IptvRepository(context: Context) {
                 item.optString("category_id") to item.optString("category_name")
             }
         return parseJsonArray(streamsText).let { streams ->
-            require(streams.size <= MAX_CHANNELS) { "Xtream returned more than $MAX_CHANNELS channels." }
+            if (streams.size > MAX_CHANNELS) {
+                throw IptvRepositoryException(R.string.iptv_error_too_many_channels, listOf(MAX_CHANNELS))
+            }
             streams.mapNotNull { item ->
                 val streamId = item.optString("stream_id").takeIf(String::isNotBlank) ?: return@mapNotNull null
-                val name = item.optString("name").ifBlank { "Channel $streamId" }
+                val name = item.optString("name").ifBlank {
+                    appContext.getString(R.string.iptv_channel_with_id, streamId)
+                }
                 val streamType = item.optString("stream_type").lowercase()
                 val suffix = if (streamType.contains("m3u8")) "m3u8" else "ts"
                 val encodedUser = pathSegment(source.username)
@@ -154,7 +166,7 @@ internal class IptvRepository(context: Context) {
         val normalized = text.trim()
         if (allowEmptyObject && normalized.startsWith("{")) return emptyList()
         if (!normalized.startsWith("[")) {
-            throw IptvRepositoryException("Xtream rejected the login or returned an invalid response.")
+            throw IptvRepositoryException(R.string.iptv_error_xtream_response)
         }
         val array = JSONArray(normalized)
         return List(array.length()) { index -> array.getJSONObject(index) }
@@ -163,11 +175,11 @@ internal class IptvRepository(context: Context) {
     private fun requestText(url: String, allowRedirects: Boolean = true): String {
         val connection = try {
             URL(url).openConnection() as? HttpURLConnection
-                ?: throw IptvRepositoryException("This IPTV server type is not supported.")
+                ?: throw IptvRepositoryException(R.string.iptv_error_server_type_unsupported)
         } catch (error: IptvRepositoryException) {
             throw error
         } catch (error: Exception) {
-            throw IptvRepositoryException("The IPTV server address is invalid.", error)
+            throw IptvInputException(R.string.iptv_error_invalid_http_address, cause = error)
         }
         try {
             connection.connectTimeout = REQUEST_TIMEOUT_MS
@@ -177,7 +189,7 @@ internal class IptvRepository(context: Context) {
             connection.setRequestProperty("User-Agent", "TvHome IPTV/1.0")
             val status = connection.responseCode
             if (status !in 200..299) {
-                throw IptvRepositoryException("The IPTV server returned HTTP $status.")
+                throw IptvRepositoryException(R.string.iptv_error_http_status, listOf(status))
             }
             val bytes = connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
@@ -188,7 +200,7 @@ internal class IptvRepository(context: Context) {
                     if (count < 0) break
                     total += count
                     if (total > MAX_RESPONSE_BYTES) {
-                        throw IptvRepositoryException("The IPTV response is too large.")
+                        throw IptvRepositoryException(R.string.iptv_error_response_too_large)
                     }
                     output.write(buffer, 0, count)
                 }
@@ -198,7 +210,7 @@ internal class IptvRepository(context: Context) {
         } catch (error: IptvRepositoryException) {
             throw error
         } catch (error: Exception) {
-            throw IptvRepositoryException("Could not reach the IPTV server.", error)
+            throw IptvRepositoryException(R.string.iptv_error_server_unreachable, cause = error)
         } finally {
             connection.disconnect()
         }
@@ -209,24 +221,30 @@ internal class IptvRepository(context: Context) {
         val url = try {
             URL(value)
         } catch (error: Exception) {
-            throw IptvRepositoryException("Enter a valid HTTP or HTTPS address.", error)
+            throw IptvInputException(R.string.iptv_error_invalid_http_address, cause = error)
         }
-        require(url.protocol.equals("http", true) || url.protocol.equals("https", true)) {
-            "Only HTTP and HTTPS sources are supported."
-        }
-        require(!url.host.isNullOrBlank()) { "Enter a valid HTTP or HTTPS address." }
+        iptvRequire(
+            url.protocol.equals("http", true) || url.protocol.equals("https", true),
+            R.string.iptv_error_http_only,
+        )
+        iptvRequire(!url.host.isNullOrBlank(), R.string.iptv_error_invalid_http_address)
         if (forbidUserInfo) {
-            require(url.userInfo.isNullOrBlank()) {
-                "Keep login credentials in the Xtream fields, not in the server URL."
-            }
+            iptvRequire(url.userInfo.isNullOrBlank(), R.string.iptv_error_credentials_in_fields)
         }
         return value
     }
 
     private fun saveSources(sources: List<IptvSource>) = IptvStorage.save(appContext, sources)
 
+    private fun parseM3u(content: String, source: IptvSource): List<IptvChannel> =
+        IptvM3uParser.parse(content, source) { channelNumber ->
+            appContext.getString(R.string.iptv_channel_number, channelNumber)
+        }
+
     private fun safeMessage(error: Exception): String =
-        (error as? IptvRepositoryException)?.message ?: "Could not sync this source."
+        (error as? IptvLocalizedFailure)?.let {
+            appContext.getString(it.messageResId, *it.messageArgs.toTypedArray())
+        } ?: appContext.getString(R.string.iptv_error_sync_failed)
 
     private fun query(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
     private fun pathSegment(value: String): String =
@@ -240,6 +258,3 @@ internal class IptvRepository(context: Context) {
         private const val REQUEST_TIMEOUT_MS = 18_000
     }
 }
-
-internal class IptvRepositoryException(message: String, cause: Throwable? = null) :
-    IllegalStateException(message, cause)

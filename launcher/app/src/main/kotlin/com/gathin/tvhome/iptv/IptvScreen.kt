@@ -49,6 +49,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
+import com.gathin.tvhome.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +76,7 @@ internal fun IptvScreen(
     onPlayerChanged: (IptvMedia3PlayerView?) -> Unit,
 ) {
     val context = LocalContext.current
+    val allChannelsLabel = stringResource(R.string.iptv_all_channels)
     val scope = rememberCoroutineScope()
     var sources by remember { mutableStateOf(emptyList<IptvSource>()) }
     var loading by remember { mutableStateOf(false) }
@@ -83,15 +87,17 @@ internal fun IptvScreen(
     var showLicensesDialog by rememberSaveable { mutableStateOf(false) }
     var sourceToDelete by remember { mutableStateOf<IptvSource?>(null) }
     var activeChannel by remember { mutableStateOf<IptvChannel?>(null) }
-    var selectedGroup by rememberSaveable { mutableStateOf(ALL_CHANNELS) }
+    var selectedGroup by rememberSaveable(allChannelsLabel) { mutableStateOf(allChannelsLabel) }
     var query by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(repository) {
         loading = true
         try {
-            sources = withContext(Dispatchers.IO) { repository.loadSources() }
+            val loaded = withContext(Dispatchers.IO) { repository.loadSourcesState() }
+            sources = loaded.sources
+            errorText = loaded.warningResId?.let(context::getString)
         } catch (failure: Exception) {
-            errorText = readableError(failure)
+            errorText = readableError(failure, context)
         } finally {
             loading = false
         }
@@ -102,15 +108,15 @@ internal fun IptvScreen(
             .flatMap(IptvSource::cachedChannels)
             .distinctBy(IptvChannel::id)
     }
-    val groups = remember(allChannels) {
-        listOf(ALL_CHANNELS) + allChannels.map(IptvChannel::group)
+    val groups = remember(allChannels, allChannelsLabel) {
+        listOf(allChannelsLabel) + allChannels.map(IptvChannel::group)
             .filter(String::isNotBlank)
             .distinct()
             .sortedBy { it.lowercase(Locale.getDefault()) }
     }
-    val visibleChannels = remember(allChannels, selectedGroup, query) {
+    val visibleChannels = remember(allChannels, selectedGroup, query, allChannelsLabel) {
         allChannels.filter { channel ->
-            (selectedGroup == ALL_CHANNELS || channel.group == selectedGroup) &&
+            (selectedGroup == allChannelsLabel || channel.group == selectedGroup) &&
                 (query.isBlank() || channel.name.contains(query, ignoreCase = true))
         }
     }
@@ -125,12 +131,16 @@ internal fun IptvScreen(
                 statusText = result.message
                 errorText = result.warning
             } catch (failure: Exception) {
-                errorText = readableError(failure)
+                errorText = readableError(failure, context)
             } finally {
                 try {
-                    sources = withContext(Dispatchers.IO) { repository.loadSources() }
+                    val loaded = withContext(Dispatchers.IO) { repository.loadSourcesState() }
+                    sources = loaded.sources
+                    if (errorText == null) {
+                        errorText = loaded.warningResId?.let(context::getString)
+                    }
                 } catch (failure: Exception) {
-                    errorText = readableError(failure)
+                    if (errorText == null) errorText = readableError(failure, context)
                 }
                 loading = false
             }
@@ -140,7 +150,8 @@ internal fun IptvScreen(
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runTask {
-                val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "local.m3u"
+                val fileName = uri.lastPathSegment?.substringAfterLast('/')
+                    ?: "${context.getString(R.string.iptv_default_local_m3u_name)}.m3u"
                 val content = context.contentResolver.openInputStream(uri)?.use { input ->
                     InputStreamReader(input, StandardCharsets.UTF_8).use { reader ->
                         val text = StringBuilder()
@@ -149,15 +160,15 @@ internal fun IptvScreen(
                             val count = reader.read(buffer)
                             if (count < 0) break
                             if (text.length + count > IptvRepository.MAX_PLAYLIST_CHARS) {
-                                throw IptvRepositoryException("Playlist file is too large.")
+                                throw IptvInputException(R.string.iptv_error_playlist_too_large)
                             }
                             text.append(buffer, 0, count)
                         }
                         text.toString()
                     }
-                } ?: throw IptvRepositoryException("Could not read the selected playlist file.")
+                } ?: throw IptvRepositoryException(R.string.iptv_error_selected_file_unreadable)
                 repository.addLocalM3u("", fileName, content)
-                IptvTaskResult(message = "Playlist saved on this TV.")
+                IptvTaskResult(message = context.getString(R.string.iptv_saved_on_tv))
             }
         }
     }
@@ -199,14 +210,26 @@ internal fun IptvScreen(
                             warning = result.errors.joinToString("\n"),
                         )
                     } else {
-                        IptvTaskResult(message = "${result.channelCount} channels synchronized.")
+                        IptvTaskResult(
+                            message = context.resources.getQuantityString(
+                                R.plurals.iptv_channels_synced,
+                                result.channelCount,
+                                result.channelCount,
+                            ),
+                        )
                     }
                 }
             },
             onSyncSource = { source ->
                 runTask {
                     val updated = repository.syncSource(source.id)
-                    IptvTaskResult(message = "${updated.cachedChannels.size} channels synchronized.")
+                    IptvTaskResult(
+                        message = context.resources.getQuantityString(
+                            R.plurals.iptv_channels_synced,
+                            updated.cachedChannels.size,
+                            updated.cachedChannels.size,
+                        ),
+                    )
                 }
             },
             onDeleteSource = { sourceToDelete = it },
@@ -232,7 +255,7 @@ internal fun IptvScreen(
                 runTask {
                     val source = repository.addM3uUrl(name, url)
                     repository.syncSource(source.id)
-                    IptvTaskResult(message = "M3U playlist synchronized.")
+                    IptvTaskResult(message = context.getString(R.string.iptv_m3u_synced))
                 }
             },
         )
@@ -246,7 +269,7 @@ internal fun IptvScreen(
                 runTask {
                     val source = repository.addXtream(name, server, username, password)
                     repository.syncSource(source.id)
-                    IptvTaskResult(message = "Xtream channels synchronized.")
+                    IptvTaskResult(message = context.getString(R.string.iptv_xtream_synced))
                 }
             },
         )
@@ -255,16 +278,16 @@ internal fun IptvScreen(
     sourceToDelete?.let { source ->
         AlertDialog(
             onDismissRequest = { sourceToDelete = null },
-            title = { Text("Remove ${source.name}?") },
-            text = { Text("This removes the saved source, cached channels, and its locally encrypted login data.") },
+            title = { Text(stringResource(R.string.iptv_remove_title, source.name)) },
+            text = { Text(stringResource(R.string.iptv_remove_explanation)) },
             confirmButton = {
                 TvActionButton(
-                    text = "Remove source",
+                    text = stringResource(R.string.iptv_remove_source),
                     onClick = {
                         sourceToDelete = null
                         runTask {
                             repository.deleteSource(source.id)
-                            IptvTaskResult(message = "Source removed.")
+                            IptvTaskResult(message = context.getString(R.string.iptv_source_removed))
                         }
                     },
                     modifier = Modifier.padding(8.dp),
@@ -272,7 +295,7 @@ internal fun IptvScreen(
             },
             dismissButton = {
                 TvActionButton(
-                    "Cancel",
+                    stringResource(R.string.iptv_cancel),
                     onClick = { sourceToDelete = null },
                     modifier = Modifier.padding(8.dp),
                 )
@@ -327,36 +350,63 @@ private fun IptvHome(
             ) {
                 Column {
                     Text("IPTV", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("Sources saved securely on this TV", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.iptv_sources_saved_header),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TvActionButton("Back", onExit)
-                TvActionButton("Licenses", onShowLicenses)
+                TvActionButton(stringResource(R.string.iptv_back), onExit)
+                TvActionButton(stringResource(R.string.iptv_licenses), onShowLicenses)
             }
             HorizontalDivider(color = Color(0xFF283342))
-            TvActionButton("Add M3U URL", onAddM3uUrl, enabled = !loading, modifier = Modifier.fillMaxWidth())
-            TvActionButton("Import M3U file", onImportFile, enabled = !loading, modifier = Modifier.fillMaxWidth())
-            TvActionButton("Connect Xtream", onAddXtream, enabled = !loading, modifier = Modifier.fillMaxWidth())
             TvActionButton(
-                text = if (loading) "Syncing…" else "Sync all sources",
+                stringResource(R.string.iptv_add_m3u_url),
+                onAddM3uUrl,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TvActionButton(
+                stringResource(R.string.iptv_import_m3u_file),
+                onImportFile,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TvActionButton(
+                stringResource(R.string.iptv_connect_xtream),
+                onAddXtream,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TvActionButton(
+                text = if (loading) {
+                    stringResource(R.string.iptv_syncing)
+                } else {
+                    stringResource(R.string.iptv_sync_all)
+                },
                 onClick = onSyncAll,
                 enabled = !loading && sources.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
                 prominent = true,
             )
             Text(
-                "Sync refreshes remote M3U and Xtream channels. Local playlists stay on this device.",
+                stringResource(R.string.iptv_sync_description),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
             if (errorText != null) {
                 Text(errorText, color = Color(0xFFFFA8A8), style = MaterialTheme.typography.bodySmall)
-            } else if (statusText != null) {
+            }
+            if (statusText != null) {
                 Text(statusText, color = Color(0xFF8AE6D5), style = MaterialTheme.typography.bodySmall)
             }
 
-            Text("PLAYLISTS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                stringResource(R.string.iptv_playlists),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -372,7 +422,7 @@ private fun IptvHome(
                 if (sources.isEmpty()) {
                     item {
                         Text(
-                            "Add a playlist or Xtream account to get started.",
+                            stringResource(R.string.iptv_add_playlist_hint),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 12.dp),
                         )
@@ -400,8 +450,15 @@ private fun IptvHome(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column {
-                    Text("Live channels", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text("${channels.size} channels", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.iptv_live_channels),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        pluralStringResource(R.plurals.iptv_channels_count, channels.size, channels.size),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (loading) CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
             }
@@ -410,7 +467,7 @@ private fun IptvHome(
                 onValueChange = onQueryChanged,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text("Search channels") },
+                label = { Text(stringResource(R.string.iptv_search_channels)) },
             )
             Row(
                 modifier = Modifier
@@ -436,16 +493,20 @@ private fun IptvHome(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        if (sources.isEmpty()) "No playlists yet" else "No channels loaded",
+                        if (sources.isEmpty()) {
+                            stringResource(R.string.iptv_no_playlists)
+                        } else {
+                            stringResource(R.string.iptv_no_channels)
+                        },
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         if (sources.isEmpty()) {
-                            "Add an M3U file, an M3U URL, or Xtream credentials."
+                            stringResource(R.string.iptv_add_playlist_prompt)
                         } else {
-                            "Choose Sync all sources to refresh your channel list."
+                            stringResource(R.string.iptv_sync_playlist_prompt)
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -481,7 +542,15 @@ private fun SourceCard(
     ) {
         Text(source.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            "${sourceTypeName(source.type)} · ${source.cachedChannels.size} channels",
+            stringResource(
+                R.string.iptv_source_summary,
+                sourceTypeName(source.type),
+                pluralStringResource(
+                    R.plurals.iptv_channels_count,
+                    source.cachedChannels.size,
+                    source.cachedChannels.size,
+                ),
+            ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
@@ -489,20 +558,28 @@ private fun SourceCard(
         )
         if (source.lastSyncedAt > 0L) {
             Text(
-                "Updated ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.getDefault()).format(Date(source.lastSyncedAt))}",
+                stringResource(
+                    R.string.iptv_updated,
+                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.getDefault())
+                        .format(Date(source.lastSyncedAt)),
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TvActionButton(
-                text = if (source.type == IptvSourceType.M3U_FILE) "Reload" else "Sync",
+                text = if (source.type == IptvSourceType.M3U_FILE) {
+                    stringResource(R.string.iptv_reload)
+                } else {
+                    stringResource(R.string.iptv_sync)
+                },
                 onClick = onSync,
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             )
             TvActionButton(
-                text = "Remove",
+                text = stringResource(R.string.iptv_remove),
                 onClick = onDelete,
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
@@ -547,7 +624,11 @@ private fun ChannelCard(channel: IptvChannel, onClick: () -> Unit) {
                 Text(channel.group, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("Play", color = if (focused) Color.White else Color(0xFF8AE6D5), fontWeight = FontWeight.Medium)
+        Text(
+            stringResource(R.string.iptv_play),
+            color = if (focused) Color.White else Color(0xFF8AE6D5),
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -596,7 +677,10 @@ private fun IptvPlayerScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(channel.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        listOfNotNull(channel.group.takeIf(String::isNotBlank), "Media3 · HLS / DASH / TS")
+                        listOfNotNull(
+                            channel.group.takeIf(String::isNotBlank),
+                            stringResource(R.string.iptv_playback_formats),
+                        )
                             .joinToString("  •  "),
                         color = Color(0xFFB9C4D2),
                     )
@@ -605,19 +689,23 @@ private fun IptvPlayerScreen(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TvActionButton("Previous", {
+                    TvActionButton(stringResource(R.string.iptv_previous), {
                         if (channelIndex > 0) onChannelSelected(channels[channelIndex - 1])
                     }, enabled = channelIndex > 0)
-                    TvActionButton("Next", {
+                    TvActionButton(stringResource(R.string.iptv_next), {
                         if (channelIndex >= 0 && channelIndex < channels.lastIndex) {
                             onChannelSelected(channels[channelIndex + 1])
                         }
                     }, enabled = channelIndex >= 0 && channelIndex < channels.lastIndex)
-                    TvActionButton("Back to channels", onExitPlayer, prominent = true)
+                    TvActionButton(
+                        stringResource(R.string.iptv_back_to_channels),
+                        onExitPlayer,
+                        prominent = true,
+                    )
                 }
             }
             Text(
-                "Press Play/Pause on the remote to control playback. Back returns to channels.",
+                stringResource(R.string.iptv_playback_remote_help),
                 color = Color(0xFFB9C4D2),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -634,20 +722,25 @@ private fun AddM3uDialog(
     var url by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add M3U URL") },
+        title = { Text(stringResource(R.string.iptv_add_m3u_url)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text(stringResource(R.string.iptv_name)) },
+                    singleLine = true,
+                )
                 OutlinedTextField(
                     url,
                     { url = it },
-                    label = { Text("Playlist URL") },
+                    label = { Text(stringResource(R.string.iptv_playlist_url)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 if (url.startsWith("http://", ignoreCase = true)) {
                     Text(
-                        "HTTP is not encrypted. Prefer HTTPS when your provider supports it.",
+                        stringResource(R.string.iptv_http_warning),
                         color = Color(0xFFFFC37A),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -656,7 +749,7 @@ private fun AddM3uDialog(
         },
         confirmButton = {
             TvActionButton(
-                "Save and sync",
+                stringResource(R.string.iptv_save_and_sync),
                 onClick = { onSave(name, url) },
                 enabled = url.isNotBlank(),
                 modifier = Modifier.padding(8.dp),
@@ -664,7 +757,11 @@ private fun AddM3uDialog(
             )
         },
         dismissButton = {
-            TvActionButton("Cancel", onClick = onDismiss, modifier = Modifier.padding(8.dp))
+            TvActionButton(
+                stringResource(R.string.iptv_cancel),
+                onClick = onDismiss,
+                modifier = Modifier.padding(8.dp),
+            )
         },
     )
 }
@@ -674,34 +771,44 @@ private fun AddXtreamDialog(
     onDismiss: () -> Unit,
     onConnect: (name: String, server: String, username: String, password: String) -> Unit,
 ) {
-    var name by rememberSaveable { mutableStateOf("Xtream") }
+    var name by rememberSaveable { mutableStateOf("") }
     var server by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Connect Xtream") },
+        title = { Text(stringResource(R.string.iptv_connect_xtream)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text(stringResource(R.string.iptv_name)) },
+                    singleLine = true,
+                )
                 OutlinedTextField(
                     server,
                     { server = it },
-                    label = { Text("Server URL") },
+                    label = { Text(stringResource(R.string.iptv_server_url)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
-                OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true)
+                OutlinedTextField(
+                    username,
+                    { username = it },
+                    label = { Text(stringResource(R.string.iptv_username)) },
+                    singleLine = true,
+                )
                 OutlinedTextField(
                     password,
                     { password = it },
-                    label = { Text("Password") },
+                    label = { Text(stringResource(R.string.iptv_password)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 if (server.startsWith("http://", ignoreCase = true)) {
                     Text(
-                        "HTTP sends your Xtream credentials without encryption. Use HTTPS if available.",
+                        stringResource(R.string.iptv_xtream_http_warning),
                         color = Color(0xFFFFC37A),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -710,7 +817,7 @@ private fun AddXtreamDialog(
         },
         confirmButton = {
             TvActionButton(
-                "Connect and sync",
+                stringResource(R.string.iptv_connect_and_sync),
                 onClick = { onConnect(name, server, username, password) },
                 enabled = server.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.padding(8.dp),
@@ -718,7 +825,11 @@ private fun AddXtreamDialog(
             )
         },
         dismissButton = {
-            TvActionButton("Cancel", onClick = onDismiss, modifier = Modifier.padding(8.dp))
+            TvActionButton(
+                stringResource(R.string.iptv_cancel),
+                onClick = onDismiss,
+                modifier = Modifier.padding(8.dp),
+            )
         },
     )
 }
@@ -728,18 +839,15 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Open-source licenses") },
+        title = { Text(stringResource(R.string.iptv_open_source_licenses)) },
         text = {
             Text(
-                "The IPTV feature is adapted from Nuvio Enhanced contributors and distributed under GNU GPL-3.0-only. " +
-                    "It is provided without warranty. You may modify and redistribute it under the license terms. " +
-                    "The license notice and official text link are in COPYING; upstream notices are in " +
-                    "THIRD_PARTY_NOTICES.md.",
+                stringResource(R.string.iptv_license_description),
             )
         },
         confirmButton = {
             TvActionButton(
-                "View GPL-3.0",
+                stringResource(R.string.iptv_view_gpl),
                 onClick = {
                     runCatching {
                         context.startActivity(
@@ -755,7 +863,11 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
             )
         },
         dismissButton = {
-            TvActionButton("Close", onClick = onDismiss, modifier = Modifier.padding(8.dp))
+            TvActionButton(
+                stringResource(R.string.iptv_close),
+                onClick = onDismiss,
+                modifier = Modifier.padding(8.dp),
+            )
         },
     )
 }
@@ -813,16 +925,17 @@ private data class IptvTaskResult(
     val warning: String? = null,
 )
 
-private fun sourceTypeName(type: IptvSourceType): String = when (type) {
-    IptvSourceType.M3U_URL -> "M3U URL"
-    IptvSourceType.M3U_FILE -> "Local M3U"
-    IptvSourceType.XTREAM -> "Xtream"
-}
+@Composable
+private fun sourceTypeName(type: IptvSourceType): String = stringResource(
+    when (type) {
+        IptvSourceType.M3U_URL -> R.string.iptv_source_type_m3u_url
+        IptvSourceType.M3U_FILE -> R.string.iptv_source_type_local_m3u
+        IptvSourceType.XTREAM -> R.string.iptv_source_type_xtream
+    },
+)
 
-private fun readableError(error: Exception): String = when (error) {
-    is IptvRepositoryException -> error.message ?: "IPTV operation failed."
-    is IllegalArgumentException -> error.message ?: "Check the entered values."
-    else -> "IPTV operation failed. Check the source and network, then try again."
+private fun readableError(error: Exception, context: android.content.Context): String = when (error) {
+    is IptvLocalizedFailure -> context.getString(error.messageResId, *error.messageArgs.toTypedArray())
+    is IllegalArgumentException -> context.getString(R.string.iptv_error_invalid_input)
+    else -> context.getString(R.string.iptv_error_operation_failed)
 }
-
-private const val ALL_CHANNELS = "All channels"

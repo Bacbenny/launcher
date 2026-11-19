@@ -1,5 +1,6 @@
 package com.gathin.tvhome.iptv
 
+import com.gathin.tvhome.R
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
@@ -13,10 +14,12 @@ internal object IptvM3uParser {
     private val attributePattern =
         Regex("""([A-Za-z0-9_-]+)\s*=\s*("(?:\\.|[^"])*"|'[^']*'|[^\s,]+)""")
 
-    fun parse(text: String, source: IptvSource): List<IptvChannel> {
-        require(text.length <= IptvRepository.MAX_PLAYLIST_CHARS) {
-            "Playlist file is too large."
-        }
+    fun parse(
+        text: String,
+        source: IptvSource,
+        channelName: (Int) -> String = { "Channel $it" },
+    ): List<IptvChannel> {
+        iptvRequire(text.length <= IptvRepository.MAX_PLAYLIST_CHARS, R.string.iptv_error_playlist_too_large)
 
         val channels = ArrayList<IptvChannel>()
         var pendingInfo: Info? = null
@@ -70,7 +73,7 @@ internal object IptvM3uParser {
                         channels += IptvChannel(
                             id = "${source.id}:$stablePart",
                             sourceId = source.id,
-                            name = info.name.ifBlank { "Channel ${channels.size + 1}" },
+                            name = info.name.ifBlank { channelName(channels.size + 1) },
                             streamUrl = streamUrl,
                             logoUrl = info.logoUrl,
                             group = pendingGroup?.takeIf(String::isNotBlank) ?: info.group,
@@ -78,9 +81,11 @@ internal object IptvM3uParser {
                             headers = pendingHeaders.toMap(),
                             drm = drm,
                         )
-                        require(channels.size <= MAX_CHANNELS) {
-                            "Playlist has more than $MAX_CHANNELS channels."
-                        }
+                        iptvRequire(
+                            channels.size <= MAX_CHANNELS,
+                            R.string.iptv_error_playlist_channel_limit,
+                            MAX_CHANNELS,
+                        )
                     }
                     pendingInfo = null
                     pendingHeaders.clear()
@@ -89,7 +94,7 @@ internal object IptvM3uParser {
             }
         }
 
-        require(channels.isNotEmpty()) { "No playable channels were found in this M3U playlist." }
+        iptvRequire(channels.isNotEmpty(), R.string.iptv_error_no_playable_channels)
         return channels
     }
 
